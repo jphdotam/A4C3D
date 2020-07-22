@@ -574,6 +574,76 @@ def get_seg_model(cfg, **kwargs):
     return model
 
 
+# For inference using multires
+def gaussian(window_size, sigma):
+    sigma = sigma.unsqueeze(-1)
+
+    x = torch.arange(window_size, device=sigma.device).float() - window_size // 2
+    if window_size % 2 == 0:
+        x = x + 0.5
+    gauss = torch.exp((-x.pow(2.0) / (2 * sigma ** 2)))
+    return gauss / gauss.sum(dim=-1, keepdim=True)
+
+
+def get_gaussian_kernel2d(kernel_size, sigma, force_even=False):
+
+    ksize_y, ksize_x = kernel_size
+    sigma_y = sigma[..., 0]
+    sigma_x = sigma[..., 1]
+
+    kernel_x: torch.Tensor = gaussian(ksize_x, sigma_x)
+    kernel_y: torch.Tensor = gaussian(ksize_y, sigma_y)
+    kernel_2d: torch.Tensor = torch.matmul(
+        kernel_x.unsqueeze(-1), kernel_y.unsqueeze(-2)
+    )
+    return kernel_2d
+
+
+def compute_padding(kernel_size):
+    """Computes padding tuple."""
+    # 4 ints:  (padding_left, padding_right,padding_top,padding_bottom)
+    # https://pytorch.org/docs/stable/nn.html#torch.nn.functional.pad
+    assert len(kernel_size) == 2, kernel_size
+    computed = [k // 2 for k in kernel_size]
+
+    # for even kernels we need to do asymetric padding :(
+    return [computed[1] - 1 if kernel_size[0] % 2 == 0 else computed[1],
+            computed[1],
+            computed[0] - 1 if kernel_size[1] % 2 == 0 else computed[0],
+            computed[0]]
+
+
+def gaussian_blur2d(x, kernel_size, sigma):
+    if x.ndim != 4:
+        raise AttributeError
+
+    b, c, h, w = x.shape
+
+    filter = get_gaussian_kernel2d(kernel_size, sigma)
+    filter = filter.unsqueeze(1)
+
+    filter_height, filter_width = filter.shape[-2:]
+    padding_shape = compute_padding((filter_height, filter_width))
+    input_pad = F.pad(x, padding_shape, mode='constant')
+    out = F.conv2d(input_pad, filter, groups=c, padding=0, stride=1)
+
+    return out
+
+
+def gaussian_blur2d_norm(y_pred, kernel_size, sigma):
+    max_y_pred = torch.max(y_pred.reshape(y_pred.shape[0], y_pred.shape[1], -1), dim=2, keepdim=True)[0].unsqueeze(3)
+    y_pred = gaussian_blur2d(x=y_pred, kernel_size=kernel_size, sigma=sigma)
+
+    max_y__pred = torch.max(y_pred.reshape(y_pred.shape[0], y_pred.shape[1], -1), dim=2, keepdim=True)[0].unsqueeze(3)
+    min_y__pred = torch.min(y_pred.reshape(y_pred.shape[0], y_pred.shape[1], -1), dim=2, keepdim=True)[0].unsqueeze(3)
+
+    y_pred = ((y_pred - min_y__pred) / (max_y__pred - min_y__pred)) * max_y_pred
+
+    return y_pred
+
+
+
+
 def get_2dnet_cfg(cfg):
     NET_CFG = {}
 
@@ -597,7 +667,7 @@ def get_2dnet_cfg(cfg):
     NET_CFG['STAGE2']['NUM_MODULES'] = 1
     NET_CFG['STAGE2']['NUM_BRANCHES'] = 2
     NET_CFG['STAGE2']['NUM_BLOCKS'] = [4, 4]
-    NET_CFG['STAGE2']['NUM_CHANNELS'] = [24, 48]
+    NET_CFG['STAGE2']['NUM_CHANNELS'] = [32, 64]
     NET_CFG['STAGE2']['BLOCK'] = 'BOTTLENECK'
     NET_CFG['STAGE2']['FUSE_METHOD'] = 'SUM'
 
@@ -605,7 +675,7 @@ def get_2dnet_cfg(cfg):
     NET_CFG['STAGE3']['NUM_MODULES'] = 4
     NET_CFG['STAGE3']['NUM_BRANCHES'] = 3
     NET_CFG['STAGE3']['NUM_BLOCKS'] = [4, 4, 4]
-    NET_CFG['STAGE3']['NUM_CHANNELS'] = [24, 48, 96]
+    NET_CFG['STAGE3']['NUM_CHANNELS'] = [32, 64, 128]
     NET_CFG['STAGE3']['BLOCK'] = 'BOTTLENECK'
     NET_CFG['STAGE3']['FUSE_METHOD'] = 'SUM'
 
@@ -613,7 +683,7 @@ def get_2dnet_cfg(cfg):
     NET_CFG['STAGE4']['NUM_MODULES'] = 3
     NET_CFG['STAGE4']['NUM_BRANCHES'] = 4
     NET_CFG['STAGE4']['NUM_BLOCKS'] = [4, 4, 4, 4]
-    NET_CFG['STAGE4']['NUM_CHANNELS'] = [24, 48, 96, 192]
+    NET_CFG['STAGE4']['NUM_CHANNELS'] = [32, 64, 128, 256]
     NET_CFG['STAGE4']['BLOCK'] = 'BOTTLENECK'
     NET_CFG['STAGE4']['FUSE_METHOD'] = 'SUM'
 
@@ -623,12 +693,11 @@ def get_2dnet_cfg(cfg):
     NET_CFG['DECONV']['NUM_BASIC_BLOCKS'] = 4
     NET_CFG['DECONV']['KERNEL_SIZE'] = [2, 2]
     NET_CFG['DECONV']['CAT_OUTPUT'] = [True, True]
-
     out = {}
 
     out['MODEL'] = {}
     out['DATASET'] = {}
-    out['DATASET']['NUM_INPUT_CHANNELS'] = 3 * 3  # Matt has space for frame before & after, so 3 sets of 3
+    out['DATASET']['NUM_INPUT_CHANNELS'] = 3
 
     with open(cfg['paths']['keys_json'], "r") as read_file:
         keypoint_names = list(json.load(read_file).keys())
