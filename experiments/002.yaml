@@ -74,9 +74,9 @@ transforms:
     img_size: [288, 288]
     randomresizedcrop: [0.5, 0.75]  # 2 floats specifying scale range
     normalize: true
-    blankframes_pre: (0.1, 12)  # Chance, n_frames
-    blankframes_post: (0.2, 12)  # Chance, n_frames
-    grid_dropout: (0.2, false) # whether to apply, apply to mask
+    blankframes_pre: [0.1, 12]  # Chance, n_frames
+    blankframes_post: [0.2, 12]  # Chance, n_frames
+    grid_dropout: [0.25, false] # whether to apply, apply to mask
   test:
     random_start_frame: false
     img_size: [320, 320]

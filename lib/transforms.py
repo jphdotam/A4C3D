@@ -9,6 +9,17 @@ def load_transforms(cfg):
 
         transforms = []
 
+        if transcfg.get("grid_dropout", False):
+            chance, apply_to_mask = transcfg.get("grid_dropout")
+            if not apply_to_mask:
+                apply_to_mask = None  # None is correct parameter rather than False
+            transforms.append(A.GridDropout(ratio=chance,
+                                            unit_size_min=10,
+                                            unit_size_max=50,
+                                            random_offset=True,
+                                            fill_value=0,
+                                            mask_fill_value=apply_to_mask))
+
         if transcfg.get("randomresizedcrop", False):
             scale = transcfg.get("randomresizedcrop")
             transforms.append(A.RandomResizedCrop(height=img_height, width=img_width, scale=scale, ratio=(0.8, 1.2), p=1))

@@ -252,7 +252,8 @@ class E32Dataset(Dataset):
                         y_pred_50 = gaussian_blur2d_norm(y_pred=y_pred_50, kernel_size=(25, 25), sigma=keypoint_sds)
 
                         y_pred_25 = torch.nn.functional.interpolate(y_pred_25, scale_factor=scale_factors[0], mode='bilinear', align_corners=True)
-                        y_pred_50 = torch.nn.functional.interpolate(y_pred_50, scale_factor=scale_factors[1], mode='bilinear', align_corners=True)
+                        if scale_factors[1] != 1:
+                            y_pred_50 = torch.nn.functional.interpolate(y_pred_50, scale_factor=scale_factors[1], mode='bilinear', align_corners=True)
 
                         y_batch = (y_pred_25 + y_pred_50) / 2.0
                     else:
@@ -319,7 +320,7 @@ class E32Dataset(Dataset):
                 out_label[i_frame] = aug['mask']
 
         # Start with blank frames occasionally and zerod labels
-        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_pre')
+        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_pre', (False, 0))
         if blank_chance:
             if random.random() < blank_chance:
                 blankframes_n = random.randint(1, blanks_maxframes)
@@ -327,7 +328,7 @@ class E32Dataset(Dataset):
                 out_video, out_label = self.zero_frames(out_video, blankframes_from, blankframes_to, out_label, zero_label=True)
 
         # Finish with blank frames occasionally and zerod labels
-        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_post')
+        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_post', (False, 0))
         if blank_chance:
             if random.random() < blank_chance:
                 blankframes_n = random.randint(1, blanks_maxframes)
