@@ -1,4 +1,5 @@
 import os
+import re
 import cv2
 import math
 import json
@@ -13,13 +14,15 @@ import albumentations as A
 from tqdm import tqdm
 from glob import glob
 
+from lib.nets.hrnet import gaussian_blur2d_norm
+
 from torch.utils.data import Dataset
 
 MAX_FRAMES = 200  # If you change this you should regenerate the labels
 
 
 class E32Dataset(Dataset):
-    def __init__(self, cfg, train_or_test, transforms, label_generation_cnn=None, fold=1, check_labels=False):
+    def __init__(self, cfg, train_or_test, transforms, label_generation_cnn=None, fold=1):
         self.cfg = cfg
         self.train_or_test = train_or_test
         self.fold = fold
@@ -51,14 +54,16 @@ class E32Dataset(Dataset):
             self.generate_labels()
         else:
             self.studies = self.load_studies()
-            self.check_labels()
+            self.get_labels()
 
     def __len__(self):
         return len(self.studies)
 
     def __getitem__(self, idx):
         """Load the pngs into a video (a random continguous range of len self.frames for train, starting at 0 for test)
-        and then augment this video and the labels with the transforms"""
+        and then augment this video and the labels with the transforms
+
+        Labelpath is directory, from which it pulls an npz or all the PNGs"""
         studyfolder = list(self.studies.keys())[idx]
         pngpaths = self.studies[studyfolder]['pngs']
         labelpath = self.studies[studyfolder]['label']
@@ -68,10 +73,12 @@ class E32Dataset(Dataset):
         else:
             frame_from = 0
 
-        pngpaths = pngpaths[frame_from:frame_from + self.frames]
+        frame_to = frame_from + self.frames
+
+        pngpaths = pngpaths[frame_from:frame_to]
 
         x = self.load_video(pngpaths)
-        y = np.load(labelpath)['label'][frame_from:frame_from + self.frames]
+        y = self.load_label(labelpath, frame_from, frame_to)
         y = self.upsample_label(y)
 
         x, y = self.transform_video_for_training(video=x, transforms=self.traintime_transforms, label=y,
@@ -89,9 +96,28 @@ class E32Dataset(Dataset):
 
         return x, y
 
-    def get_output_layer_ids_by_name(self):
+    def load_label(self, labelpath, frame_from, frame_to):
+        """Labelpath is either an npz file or a list of PNGs"""
+        format = self.cfg['data']['labels']['format']
+
+        if format == 'npz':
+            label = np.load(labelpath)['label'][frame_from:frame_to]
+
+        elif format == 'png':
+            raise NotImplementedError()
+
+        else:
+            return ValueError()
+
+        return label
+
+    def get_keypoint_names_2d(self):
         with open(self.cfg['paths']['keys_json'], "r") as read_file:
             keypoint_names = list(json.load(read_file).keys())
+        return keypoint_names
+
+    def get_output_layer_ids_by_name(self):
+        keypoint_names = self.get_keypoint_names_2d()
         output_layernames = self.cfg['data']['labels']['names']
         output_layers_ids = {name:keypoint_names.index(name) for name in output_layernames}
         return output_layers_ids
@@ -114,8 +140,7 @@ class E32Dataset(Dataset):
         print(f"Generating labels for {len(studies)} studies")
         for studypath, studydict in tqdm(studies.items()):
             pngs = studydict['pngs']
-            labelpath = os.path.join(studypath, f"label_{self.labelname}.npz")
-            self.generate_label_from_pngs(pngs, labelpath)
+            self.generate_label_from_pngs(pngs, studypath)
 
     def load_studies(self, all_studies=False):
         """
@@ -142,7 +167,7 @@ class E32Dataset(Dataset):
 
         assert 1 <= self.fold <= self.n_folds, f"Fold should be between 1 and {self.n_folds}, not {self.fold}"
         studies = {}
-        studypaths_all = [f for f in glob(os.path.join(self.datadir, "*")) if os.path.isdir(f)]
+        studypaths_all = sorted([f for f in glob(os.path.join(self.datadir, "*")) if os.path.isdir(f)])
 
         if self.label_generation_cnn:  # If including all studies so we can generate labels
             studypaths = studypaths_all
@@ -161,19 +186,27 @@ class E32Dataset(Dataset):
               f"({len(studypaths_all)} total; {n_insufficient_frames} excluded due to insufficient frames)")
         return studies
 
-    def check_labels(self):
-        """Check each study has a label.npz file created from 2D inference. If not, generate it.
-        This will throw an error if a label is missing and a 2D CNN isn't found.
-        Finally, add the path to label.npz to the studies dictionary under the ['label'] key"""
-        for studypath, studydict in tqdm(self.studies.copy().items()):
-            labelpath = os.path.join(studypath, f"label_{self.labelname}.npz")
-            if not os.path.exists(labelpath):
-                del self.studies[studypath]
-                continue
-                #raise FileNotFoundError(f"Missing label for study {studypath}")
-            self.studies[studypath]['label'] = labelpath
+    def get_labels(self):
+        format = self.cfg['data']['labels']['format']
 
-    def generate_label_from_pngs(self, pngpaths, savepath):
+        for studypath, studydict in tqdm(self.studies.copy().items()):
+
+            if format == 'npz':
+                labelpath = os.path.join(studypath, f"label_{self.labelname}.npz")
+                if not os.path.exists(labelpath):
+                    del self.studies[studypath]
+                    continue
+                    #raise FileNotFoundError(f"Missing label for study {studypath}")
+                self.studies[studypath]['label'] = labelpath
+
+            elif format == 'png':
+                raise NotImplementedError()
+
+            else:
+                raise ValueError()
+
+
+    def generate_label_from_pngs(self, pngpaths, studypath):
         """Receives list of PNGs and generates labels using the 2D CNNs which is saved as a NPZ array.
         The video needs to be augmented akin to how Matt would augment it to ensure labels are valid.
         He uses x = x/255 - 0.5
@@ -182,17 +215,70 @@ class E32Dataset(Dataset):
         video = video / 255 - 0.5
         video = np.concatenate((video, video, video), axis=-1)  # -> RGB
         x = torch.from_numpy(video).to(self.label_generation_device).permute(0, 3, 1, 2)
-        x = torch.cat((torch.zeros_like(x), x, torch.zeros_like(x)), dim=1).float()
+
+        # append a pre and post frame if needed
+        if self.cfg['data']['2d']['pre_post_frames']:
+            x = torch.cat((torch.zeros_like(x), x, torch.zeros_like(x)), dim=1).float()
+
+        x = x.float()
+
+        y_batches = []
+
+        frames_per_batch = self.cfg['data']['2d']['frames_per_batch']
+        n_frames = x.shape[0]
+        n_batches = math.ceil(n_frames/frames_per_batch)
+
+        for i_batch in range(n_batches):
+            frame_from = i_batch*frames_per_batch
+            frame_to = (i_batch+1)*frames_per_batch
+            x_batch = x[frame_from:frame_to]
+
+            with torch.no_grad():
+                try:
+                    if self.cfg['data']['2d']['multi_res']:
+                        curve_sd = self.cfg['data']['2d']['curve_sd']
+                        dot_sd = self.cfg['data']['2d']['dot_sd']
+                        scale_factors = (4,2) if self.cfg['data']['2d']['upsample_labels'] else (2,1)
+
+                        # get gaussian SD for each keypoint depending on if curve or dot - NB matt keypoint names (all 51)
+                        keypoint_names = self.get_keypoint_names_2d()
+                        keypoint_sds = [curve_sd if 'curve' in keypoint_name else dot_sd for keypoint_name in keypoint_names]
+                        keypoint_sds = torch.tensor(keypoint_sds, dtype=torch.float, device=self.label_generation_device)
+                        keypoint_sds = keypoint_sds.unsqueeze(1).expand(-1, 2)
+
+                        y_pred_25, y_pred_50 = self.label_generation_cnn(x_batch)
+
+                        y_pred_25 = gaussian_blur2d_norm(y_pred=y_pred_25, kernel_size=(25, 25), sigma=keypoint_sds)
+                        y_pred_50 = gaussian_blur2d_norm(y_pred=y_pred_50, kernel_size=(25, 25), sigma=keypoint_sds)
+
+                        y_pred_25 = torch.nn.functional.interpolate(y_pred_25, scale_factor=scale_factors[0], mode='bilinear', align_corners=True)
+                        y_pred_50 = torch.nn.functional.interpolate(y_pred_50, scale_factor=scale_factors[1], mode='bilinear', align_corners=True)
+
+                        y_batch = (y_pred_25 + y_pred_50) / 2.0
+                    else:
+                        y_batch = self.label_generation_cnn(x)[-1]  # Several outputs from Matt's model, we want last
+
+                    y_batches.append(y_batch.cpu().numpy())
+
+                except RuntimeError as e:
+                    print(f"CUDA error for {pngpaths[0]} ({len(pngpaths)} images): {e}")
+                    return None
+
         with torch.no_grad():
-            try:
-                y = self.label_generation_cnn(x)[-1]  # Several outputs from Matt's model, we want last
-            except RuntimeError as e:
-                print(f"CUDA memory error for {pngpaths[0]} ({len(pngpaths)} images): {e}")
-                return None
+            y_batches = np.concatenate((y_batches), axis=0)
+
         # Make channels last before saving so we can more easily augment each image after loading
         output_layer_ids = list(self.label_generation_output_layer_ids_by_name.values())
-        label = y[:, output_layer_ids].permute((0, 2, 3, 1)).cpu().numpy()
-        np.savez_compressed(savepath, label=label)
+
+        label_format = self.cfg['data']['labels']['format']
+
+        if label_format == 'npz':
+            savepath = os.path.join(studypath, f"label_{self.labelname}.npz")
+            label = y_batches[:, output_layer_ids].transpose((0, 2, 3, 1))  # Want channels last for data aug
+            np.savez_compressed(savepath, label=label)
+
+        elif label_format == 'png':
+            raise NotImplementedError()
 
     def load_video(self, pngpaths):
         """Loads a video of len(pngs) frames as a numpy arrays equal to Matt's Shape.
@@ -232,10 +318,34 @@ class E32Dataset(Dataset):
             if label is not None:
                 out_label[i_frame] = aug['mask']
 
+        # Start with blank frames occasionally and zerod labels
+        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_pre')
+        if blank_chance:
+            if random.random() < blank_chance:
+                blankframes_n = random.randint(1, blanks_maxframes)
+                blankframes_from, blankframes_to = 1, blankframes_n
+                out_video, out_label = self.zero_frames(out_video, blankframes_from, blankframes_to, out_label, zero_label=True)
+
+        # Finish with blank frames occasionally and zerod labels
+        blank_chance, blanks_maxframes = self.cfg['transforms'][self.train_or_test].get('blankframes_post')
+        if blank_chance:
+            if random.random() < blank_chance:
+                blankframes_n = random.randint(1, blanks_maxframes)
+                blankframes_from, blankframes_to = len(out_video) - blankframes_n, len(out_video)
+                out_video, out_label = self.zero_frames(out_video, blankframes_from, blankframes_to, out_label, zero_label=True)
+
         if label is not None:
             return out_video, out_label
         else:
             return out_video
+
+    @staticmethod
+    def zero_frames(video, frame_from, frame_to, label=None, zero_label=True):
+        video[frame_from:frame_to+1] = 0
+        if zero_label:
+            assert label is not None, "need to supply a label if zero_label is True"
+            label[frame_from:frame_to+1] = 0
+        return video, label
 
     @staticmethod
     def rgb_to_grayscale(img):

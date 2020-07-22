@@ -6,11 +6,17 @@ from tqdm import tqdm
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-DATA_DIR = "/home/james/data/a4c3d/mva_train"
-REMOTE_PATH = "https://files.magiquant.com/scantensus-database-png-flat"
-MAX_FRAMES = 10000
+from lib.config import load_config
 
+CONFIG = "./experiments/002.yaml"
+MAX_FRAMES = 10000
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
+FORCE_REDOWNLOAD = True
+
+cfg = load_config(CONFIG)
+png_dir = cfg['paths']['data']
+remote_path = cfg['paths']['remote_path']
+
 
 def download_case(case):
     case = case.strip()  # Get rid of linebreaks etc.
@@ -19,12 +25,17 @@ def download_case(case):
     subdir1 = case.split('-', 1)[0]
     subdir2, subdir3 = case[3:5], case[5:7]
 
-    localdir = os.path.join(DATA_DIR, case)
+    localdir = os.path.join(png_dir, case)
     if not os.path.exists(localdir):
+        exists = True
         os.makedirs(localdir)
+    else:
+        exists = False
+
+    if not exists or FORCE_REDOWNLOAD:
 
         for i in range(MAX_FRAMES):
-            remote = f"{REMOTE_PATH}/{subdir1}/{subdir2}/{subdir3}/{case}-{i:04}.png"
+            remote = f"{remote_path}/{subdir1}/{subdir2}/{subdir3}/{case}-{i:04}.png"
             req = Request(remote, headers=HEADERS)
 
             try:
@@ -40,7 +51,7 @@ def download_case(case):
 
 if __name__ == "__main__":
 
-    with open(os.path.join(DATA_DIR, "cases.txt")) as f:
+    with open(os.path.join(png_dir, "cases.txt")) as f:
         cases = f.readlines()
 
     N_WORKERS = 1
