@@ -1,0 +1,93 @@
+resume:
+  path: /home/james/data/a4c3d/models/001/13_0.00106.pt
+  epoch: false
+  reset_optimizer: true
+  reset_lr: true
+
+paths:
+  data: /home/james/data/a4c3d/mva_train
+  models: /home/james/data/a4c3d/models
+  logs: /home/james/data/a4c3d/logs
+  vis: /home/james/data/a4c3d/vis
+  predictions: /home/james/data/a4c3d/predictions
+  # 2d model
+  2d_model: /home/james/data/a4c3d/2d_model/250_model.pt
+  keys_json: /home/james/data/a4c3d/2d_model/250_keys.json
+
+data:
+  n_folds: 4
+  excluded_folds: []
+  labels:
+    id: a4c_5c_7p
+    names: ["curve-lv-endo", "curve-rv-endo", "curve-la-endo", "curve-ra-endo", "curve-lv-endo-jump", "lv-apex-endo", "lv-apex-epi", "mv-post-hinge", "mv-ant-hinge", "rv-apex-endo", "tv-ant-hinge", "tv-sep-hinge"]
+  2d:
+    label_generation_dim: [576, 576]  # As HRNet down-samples, label resolution will be half this
+    device: cuda
+    data_parallel: true
+  3d:
+    training_frames: 32
+    testing_frames: 32
+    mean: [0.5,]
+    std: [0.25,]
+
+training:
+  # Network
+  arch: unet
+  device: cuda
+  data_parallel: distributed  # false, local or distributed
+  mixed_precision: false
+  # Data settings
+  n_epochs: 200
+  batch_size_train: 3
+  batch_size_test: 2
+  n_workers: 4
+  # Optimizer
+  optimizer:
+    type: rangerlars
+    lr: 0.001
+    weight_decay: false
+  scheduler:
+    type: ReduceLROnPlateau
+    # reduce LR params
+    patience: 3
+    factor: 0.1
+    # one cycle LR params
+    one_cycle_div_factor: 25
+    one_cycle_final_div_factor: 0.001  # Default 1e-4
+  # Loss
+  train_criterion: mseloss
+  test_criterion: mseloss
+
+transforms:
+  train:
+    random_start_frame: true
+    img_size: [288, 288]
+    randomresizedcrop: [0.5, 0.75]  # 2 floats specifying scale range
+    normalize: true
+  test:
+    random_start_frame: false
+    img_size: [320, 320]
+    normalize: true
+
+output:
+  # Frequency
+  print_every_iter: 10  # Iterations
+  vis_every_epoch: 1  # In epochs
+  # Processing of predictions
+  i_frame_to_display: 16  # For PNGs
+  layers_to_visualise: false  # false for all
+  # Pictures (TB & PNG)
+  show_png: false
+  write_png_folder: false
+  n_visualise: 2
+  n_visualise_cols: 2
+  # TensorBoard
+  use_tensorboard: true
+  write_png_tb: true
+  # Model saving
+  save: 'best'  # 'best', 'improvements', 'all'
+  # Videos
+  write_mp4_folder: true
+  colours: [[255,0,0], [0,255,0], [0,0,255], [128,128,0], [0,128,128], [128,0,128], [255,128,0], [255,0,128], [128,255,0], [0,255,128], [0,128,255], [128,0,255]]
+  # Probability maps
+  write_probs: false
