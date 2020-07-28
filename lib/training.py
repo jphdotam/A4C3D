@@ -85,11 +85,11 @@ def cycle(train_or_test, model, dataloader, epoch, criterion, optimizer, cfg, sc
 
     loss = float(meter_loss.avg.detach().cpu().numpy())
 
-    if not local_rank:
-        if not training and type(scheduler) != ReduceLROnPlateau:
-            print(f"Stepping!")
-            scheduler.step(loss)  # Need to step with the validation loss
+    if not training and type(scheduler) == ReduceLROnPlateau:
+        print(f"Stepping!")
+        scheduler.step(loss)  # Need to step with the validation loss
 
+    if not local_rank:
         print(f"{train_or_test.upper(): >5} Complete!"
               f"\t\t\tLOSS: {meter_loss.avg:.6f}")
 

@@ -7,6 +7,8 @@ from torch.optim import Adam, AdamW
 from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import OneCycleLR, ReduceLROnPlateau
 
+from lib.schedulers import JamesFlatCosineLR
+
 
 class RangerLars(Optimizer):
 
@@ -166,18 +168,28 @@ def load_optimizer(model, cfg, state, steps_per_epoch=None):
         else:
             print(f"Loaded optimizer from state dict")  # ; lr is {optimizer.lr}")
 
+    # SCHEDULERS
+    schedtype = cfg['training']['scheduler']['type']
+
     # Load scheduler if in state dict AND if we're not resetting the epoch or optimizer
-    schedtype = cfg['training']['scheduler'].get('type', None)
     if (scheduler := state.get('scheduler', None)) and not resetting_epoch and not resetting_optimizer:
         print(f"Loaded scheduler from state dict: {scheduler}")
         return optimizer, scheduler
 
     # Otherwise create scheduler if needed
     elif schedtype:
+        if schedtype == 'flatcosine':
+            anneal_start = cfg['training'].get('anneal_start_iters', False)
+            if anneal_start is False:
+                anneal_start = math.floor(cfg['training']['n_epochs'] / 2 * steps_per_epoch)
+                scheduler = JamesFlatCosineLR(optimizer,
+                                              T_max_from_annealing=math.floor(cfg['training']['n_epochs'] / 2 * steps_per_epoch),
+                                              anneal_start_iter=anneal_start)
+                print(f"Using flat cosine annealing (annealing from iter {anneal_start} - epoch {anneal_start / steps_per_epoch})")
         if schedtype == 'one_cycle':
             assert steps_per_epoch
-            div_factor = cfg['training'].get('one_cycle_div_factor', 25)
-            final_div_factor = cfg['training'].get('one_cycle_final_div_factor', 25)
+            div_factor = cfg['training']['scheduler'].get('one_cycle_div_factor', 25)
+            final_div_factor = cfg['training']['scheduler'].get('one_cycle_final_div_factor', 25)
             scheduler = OneCycleLR(optimizer,
                                    max_lr=cfg['training']['lr'],
                                    steps_per_epoch=steps_per_epoch,
@@ -194,6 +206,7 @@ def load_optimizer(model, cfg, state, steps_per_epoch=None):
                                           factor=factor,
                                           patience=patience,
                                           verbose=True)
+            print(f"Using ReduceLROnPlateau with factor {factor} and patients {patience}")
 
             # If we are resuming but not resetting the epoch to 1, user should be warned we aren't continuing the scheduler
         if resuming and not resetting_epoch and not resetting_optimizer:

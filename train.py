@@ -15,7 +15,7 @@ from lib.training import cycle, save_state
 
 import torch.distributed
 
-CONFIG = "./experiments/002.yaml"
+CONFIG = "./experiments/003.yaml"
 cfg = load_config(CONFIG)
 
 # distributed settings

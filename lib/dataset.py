@@ -238,7 +238,9 @@ class E32Dataset(Dataset):
                     if self.cfg['data']['2d']['multi_res']:
                         curve_sd = self.cfg['data']['2d']['curve_sd']
                         dot_sd = self.cfg['data']['2d']['dot_sd']
-                        scale_factors = (4,2) if self.cfg['data']['2d']['upsample_labels'] else (2,1)
+                        blur_25 = self.cfg['data']['2d']['blur_25']
+                        blur_50 = self.cfg['data']['2d']['blur_50']
+                        scale_factors = (4, 2) if self.cfg['data']['2d']['upsample_labels'] else (2, 1)
 
                         # get gaussian SD for each keypoint depending on if curve or dot - NB matt keypoint names (all 51)
                         keypoint_names = self.get_keypoint_names_2d()
@@ -248,8 +250,10 @@ class E32Dataset(Dataset):
 
                         y_pred_25, y_pred_50 = self.label_generation_cnn(x_batch)
 
-                        y_pred_25 = gaussian_blur2d_norm(y_pred=y_pred_25, kernel_size=(25, 25), sigma=keypoint_sds)
-                        y_pred_50 = gaussian_blur2d_norm(y_pred=y_pred_50, kernel_size=(25, 25), sigma=keypoint_sds)
+                        if blur_25:
+                            y_pred_25 = gaussian_blur2d_norm(y_pred=y_pred_25, kernel_size=(25, 25), sigma=keypoint_sds)
+                        if blur_50:
+                            y_pred_50 = gaussian_blur2d_norm(y_pred=y_pred_50, kernel_size=(25, 25), sigma=keypoint_sds)
 
                         y_pred_25 = torch.nn.functional.interpolate(y_pred_25, scale_factor=scale_factors[0], mode='bilinear', align_corners=True)
                         if scale_factors[1] != 1:

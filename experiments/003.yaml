@@ -1,11 +1,10 @@
-# trained at 0.001 LR for 35 epochs, then 0.0005, and reset at 44
-# augmentation with grid aug and pre/post blank frames
+# like 002, but without blurring of highres mask
 
 resume:
-  path: /home/james/data/a4c3d/models/002/44_0.00079.pt
+  path: false
   epoch: false
-  reset_optimizer: true
-  reset_lr: true
+  reset_optimizer: false
+  reset_lr: false
 
 paths:
   # local
@@ -34,6 +33,8 @@ data:
     frames_per_batch: 64
     # mutli_res parameters
     multi_res: true
+    blur_25: true
+    blur_50: false
     upsample_labels: false  # false means 576 input -> 288; true -> 576
     dot_sd: 4
     curve_sd: 2
@@ -50,21 +51,23 @@ training:
   data_parallel: distributed  # false, local or distributed
   mixed_precision: false
   # Data settings
-  n_epochs: 200
+  n_epochs: 100
   batch_size_train: 3
   batch_size_test: 2
   n_workers: 4
   # Optimizer
   optimizer:
     type: rangerlars
-    lr: 0.0005
+    lr: 0.001
     weight_decay: false
   scheduler:
-    type: ReduceLROnPlateau
-    # reduce LR params
+    type: flatcosine
+    # 'flatcosine' settings
+    anneal_start_iters: false  # Half way if not set/false
+    # 'ReduceLROnPlateau'
     patience: 3
     factor: 0.1
-    # one cycle LR params
+    # 'one_cycle'
     one_cycle_div_factor: 25
     one_cycle_final_div_factor: 0.001  # Default 1e-4
   # Loss
@@ -79,7 +82,7 @@ transforms:
     normalize: true
     blankframes_pre: [0.1, 12]  # Chance, n_frames
     blankframes_post: [0.2, 12]  # Chance, n_frames
-    grid_dropout: [0.25, false] # whether to apply, apply to mask
+    grid_dropout: [0.2, false] # whether to apply, apply to mask
   test:
     random_start_frame: false
     img_size: [320, 320]
