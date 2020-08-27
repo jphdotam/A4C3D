@@ -19,6 +19,9 @@ def load_config(configpath):
                  cfg['paths']['vis'],
                  cfg['paths']['predictions']):
         if not os.path.exists(path):
-            os.makedirs(path)
+            try:
+                os.makedirs(path)
+            except FileExistsError:  # Race condition on the workers
+                pass
 
     return cfg

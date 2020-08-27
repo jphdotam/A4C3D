@@ -6,7 +6,7 @@ from lib.transforms import load_transforms
 from lib.dataset import E32Dataset
 from lib.nets.hrnet import get_2dnet_cfg, get_seg_model
 
-CONFIG = "./experiments/001.yaml"
+CONFIG = "./experiments/002.yaml"
 FOLD = 1
 
 cfg = load_config(CONFIG)
@@ -18,4 +18,4 @@ hrnet_model = nn.DataParallel(model_2d)
 hrnet_model.load_state_dict(torch.load(cfg['paths']['2d_model']))
 
 # Data
-ds_train = E32Dataset(cfg, 'train', FOLD, transforms=None, label_generation_cnn=hrnet_model)
+ds_train = E32Dataset(cfg, 'train', transforms=None, label_generation_cnn=hrnet_model)
