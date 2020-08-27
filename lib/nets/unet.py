@@ -5,19 +5,20 @@ import torch.nn.functional as F
 
 
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, channels=(32, 64, 128, 256, 512), bilinear=True):
+    def __init__(self, n_channels, n_classes, channels=(32, 64, 128, 256, 512), bilinear=True, use_ds_conv=False):
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.channels = channels
         self.bilinear = bilinear
+        self.convtype = DepthwiseSeparableConv3d if use_ds_conv else nn.Conv3d
 
-        self.inc = DoubleConv(n_channels, channels[0])
-        self.down1 = Down(channels[0], channels[1])
-        self.down2 = Down(channels[1], channels[2])
-        self.down3 = Down(channels[2], channels[3])
+        self.inc = DoubleConv(n_channels, channels[0], conv_type=self.convtype)
+        self.down1 = Down(channels[0], channels[1], conv_type=self.convtype)
+        self.down2 = Down(channels[1], channels[2], conv_type=self.convtype)
+        self.down3 = Down(channels[2], channels[3], conv_type=self.convtype)
         factor = 2 if bilinear else 1
-        self.down4 = Down(channels[3], channels[4] // factor)
+        self.down4 = Down(channels[3], channels[4] // factor, conv_type=self.convtype)
         self.up1 = Up(channels[4], channels[3] // factor, bilinear)
         self.up2 = Up(channels[3], channels[2] // factor, bilinear)
         self.up3 = Up(channels[2], channels[1] // factor, bilinear)
@@ -41,15 +42,15 @@ class UNet(nn.Module):
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
-    def __init__(self, in_channels, out_channels, mid_channels=None):
+    def __init__(self, in_channels, out_channels, conv_type=nn.Conv3d, mid_channels=None):
         super().__init__()
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv3d(in_channels, mid_channels, kernel_size=3, padding=1),
+            conv_type(in_channels, mid_channels, kernel_size=3, padding=1),
             nn.BatchNorm3d(mid_channels),
             nn.ReLU(inplace=True),
-            nn.Conv3d(mid_channels, out_channels, kernel_size=3, padding=1),
+            conv_type(mid_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm3d(out_channels),
             nn.ReLU(inplace=True)
         )
@@ -61,11 +62,11 @@ class DoubleConv(nn.Module):
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, conv_type=nn.Conv3d):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool3d(2),
-            DoubleConv(in_channels, out_channels)
+            DoubleConv(in_channels, out_channels, conv_type=conv_type)
         )
 
     def forward(self, x):
@@ -81,9 +82,9 @@ class Up(nn.Module):
         # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
-            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
+            self.conv = DoubleConv(in_channels, out_channels, mid_channels=in_channels // 2)
         else:
-            self.up = nn.ConvTranspose3d(in_channels , in_channels // 2, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose3d(in_channels, in_channels // 2, kernel_size=2, stride=2)
             self.conv = DoubleConv(in_channels, out_channels)
 
 
@@ -109,6 +110,18 @@ class OutConv(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class DepthwiseSeparableConv3d(nn.Module):
+    def __init__(self, nin, nout, kernel_size, padding, kernels_per_layer=1):
+        super(DepthwiseSeparableConv3d, self).__init__()
+        self.depthwise = nn.Conv3d(nin, nin * kernels_per_layer, kernel_size=kernel_size, padding=padding, groups=nin)
+        self.pointwise = nn.Conv3d(nin * kernels_per_layer, nout, kernel_size=1)
+
+    def forward(self, x):
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        return out
 
 
 if __name__ == "__main__":

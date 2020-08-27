@@ -1,7 +1,7 @@
-# like 002, but without blurring of highres mask
+# like 004, but DS convolutions
 
 resume:
-  path: /home/james/data/a4c3d/models/003/6_0.00206.pt
+  path: false
   epoch: false
   reset_optimizer: false
   reset_lr: false
@@ -47,11 +47,12 @@ data:
 training:
   # Network
   arch: unet
+  ds_conv: true
   device: cuda
   data_parallel: distributed  # false, local or distributed
   mixed_precision: false
   # Data settings
-  n_epochs: 100
+  n_epochs: 160
   batch_size_train: 3
   batch_size_test: 2
   n_workers: 2

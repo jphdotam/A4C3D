@@ -17,7 +17,10 @@ def load_model(cfg, local_rank=None):
         batchnormfunc = lambda n_channels: nn.BatchNorm3d(n_channels)
         model = VNet(outChans=n_outputs, mixed_precision=mixed_precision, multiplier=2, normfunc=batchnormfunc)
     elif arch == 'unet':
-        model = UNet(n_channels=1, n_classes=n_outputs)
+        use_ds_conv = cfg['training'].get('ds_conv', False)
+        if use_ds_conv:
+            print(f"Using depthwise-separable convolutions for encoder")
+        model = UNet(n_channels=1, n_classes=n_outputs, use_ds_conv=use_ds_conv)
     else:
         raise ValueError()
 
