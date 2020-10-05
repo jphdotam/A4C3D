@@ -1,0 +1,172 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.10.4
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    python_version: 3.8.3
+data:
+  desc: null
+  value:
+    2d:
+      curve_sd: 2
+      data_parallel: true
+      device: cuda
+      dot_sd: 4
+      frames_per_batch: 64
+      label_generation_dim:
+      - 576
+      - 576
+      multi_res: true
+      pre_post_frames: false
+      upsample_labels: false
+    3d:
+      mean:
+      - 0.5
+      std:
+      - 0.25
+      testing_frames: 32
+      training_frames: 32
+    excluded_folds: []
+    labels:
+      format: npz
+      id: a4c_5c_7p_multires
+      names:
+      - curve-lv-endo
+      - curve-rv-endo
+      - curve-la-endo
+      - curve-ra-endo
+      - curve-lv-endo-jump
+      - lv-apex-endo
+      - lv-apex-epi
+      - mv-post-hinge
+      - mv-ant-hinge
+      - rv-apex-endo
+      - tv-ant-hinge
+      - tv-sep-hinge
+    n_folds: 0
+experiment_id:
+  desc: null
+  value: '007'
+output:
+  desc: null
+  value:
+    batches_vis: 1
+    colours:
+    - - 255
+      - 0
+      - 0
+    - - 0
+      - 255
+      - 0
+    - - 0
+      - 0
+      - 255
+    - - 128
+      - 128
+      - 0
+    - - 0
+      - 128
+      - 128
+    - - 128
+      - 0
+      - 128
+    - - 255
+      - 128
+      - 0
+    - - 255
+      - 0
+      - 128
+    - - 128
+      - 255
+      - 0
+    - - 0
+      - 255
+      - 128
+    - - 0
+      - 128
+      - 255
+    - - 128
+      - 0
+      - 255
+    print_every_iter: 10
+    save: best
+    vis_every_epoch: 1
+    write_probs: false
+paths:
+  desc: null
+  value:
+    2d_model: /home/james/unity-160/weights-140.pt
+    cases_test: /home/james/data/a4c3d/labels-tune.txt
+    cases_train: /home/james/data/a4c3d/labels-train.txt
+    data_test: /home/james/data/a4c3d/data_test
+    data_train: /home/james/data/a4c3d/data_train
+    keys_json: /home/james/unity-160/keys.json
+    logs: /home/james/data/a4c3d/logs/007
+    models: /home/james/data/a4c3d/models/007
+    predictions: /home/james/data/a4c3d/predictions/007
+    remote_path: http://89.39.141.131/scantensus-database-png-flat
+    vis: /home/james/data/a4c3d/vis/007
+resume:
+  desc: null
+  value:
+    epoch: false
+    path: false
+    reset_lr: false
+    reset_optimizer: false
+training:
+  desc: null
+  value:
+    arch: unet
+    batch_size_test: 2
+    batch_size_train: 3
+    data_parallel: distributed
+    device: cuda
+    ds_conv: false
+    mixed_precision: false
+    n_epochs: 160
+    n_workers: 2
+    optimizer:
+      lr: 0.001
+      type: rangerlars
+      weight_decay: false
+    scheduler:
+      anneal_start_iters: false
+      factor: 0.1
+      one_cycle_div_factor: 25
+      one_cycle_final_div_factor: 0.001
+      patience: 3
+      type: flatcosine
+    sigmoid: true
+    test_criterion: mseloss
+    train_criterion: mseloss
+transforms:
+  desc: null
+  value:
+    test:
+      img_size:
+      - 320
+      - 320
+      normalize: true
+      random_start_frame: false
+    train:
+      blankframes_post:
+      - 0.1
+      - 12
+      blankframes_pre:
+      - 0.1
+      - 12
+      grid_dropout:
+      - 0.1
+      - false
+      img_size:
+      - 288
+      - 288
+      normalize: true
+      random_start_frame: true
+      randomresizedcrop:
+      - 0.5
+      - 0.75

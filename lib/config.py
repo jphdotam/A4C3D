@@ -13,8 +13,7 @@ def load_config(configpath):
     cfg['paths']['vis'] = os.path.join(cfg['paths']['vis'], experiment_id)
     cfg['paths']['predictions'] = os.path.join(cfg['paths']['predictions'], experiment_id)
 
-    for path in (cfg['paths']['data'],
-                 cfg['paths']['models'],
+    for path in (cfg['paths']['models'],
                  cfg['paths']['logs'],
                  cfg['paths']['vis'],
                  cfg['paths']['predictions']):

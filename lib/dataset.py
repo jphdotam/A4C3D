@@ -14,7 +14,7 @@ import albumentations as A
 from tqdm import tqdm
 from glob import glob
 
-from lib.nets.hrnet import gaussian_blur2d_norm
+from lib.nets.hrnet147 import gaussian_blur2d_norm
 
 from torch.utils.data import Dataset
 
@@ -22,22 +22,20 @@ MAX_FRAMES = 200  # If you change this you should regenerate the labels
 
 
 class E32Dataset(Dataset):
-    def __init__(self, cfg, train_or_test, transforms, label_generation_cnn=None, fold=1):
+    def __init__(self, cfg, data_dir, train_or_test, transforms, label_generation_cnn=None):
         self.cfg = cfg
         self.train_or_test = train_or_test
-        self.fold = fold
         self.label_generation_cnn = label_generation_cnn
 
         # Data
-        self.datadir = cfg['paths']['data']
+        self.datadir = data_dir
         self.labelname = cfg['data']['labels']['id']
         self.input_dim = cfg['transforms'][self.train_or_test]['img_size']
         self.frames = cfg['data']['3d'][f'{self.train_or_test}ing_frames']
-        self.n_folds = cfg['data']['n_folds']
-        self.excluded_folds = cfg['data']['excluded_folds']
 
         # Training
         self.mixed_precision = cfg['training']['mixed_precision']
+        self.kldiv = cfg['training'][f'{train_or_test}_criterion'] == 'kldivloss'
 
         # Label generation
         self.label_generation_cnn = label_generation_cnn
@@ -94,6 +92,11 @@ class E32Dataset(Dataset):
             x = x.float()
             y = y.float()
 
+        if self.kldiv:
+            with torch.no_grad():
+                bg = 1 - torch.sum(y, dim=0).unsqueeze(0)
+                y = torch.cat((bg, y), dim=0)
+
         return x, y
 
     def load_label(self, labelpath, frame_from, frame_to):
@@ -145,6 +148,7 @@ class E32Dataset(Dataset):
     def load_studies(self, all_studies=False):
         """
         all_studies should be set to True if we're generating labels so we get cases across all folds
+        OR if folds=0, we will use the entire dataset (for train/test splits)
 
         Studies will eventually be
         {
@@ -154,25 +158,8 @@ class E32Dataset(Dataset):
             }
         }
         Here we generate the dictionary and the png paths, but label comes afterwards"""
-
-        def get_train_test_exclude_for_study(study):
-            randnum = int(hashlib.md5(str.encode(study)).hexdigest(), 16) / 16**32
-            test_fold = math.floor(randnum * self.n_folds)
-            if test_fold == self.fold:
-                return 'test'
-            elif test_fold in self.excluded_folds:
-                return 'excluded'
-            else:
-                return 'train'
-
-        assert 1 <= self.fold <= self.n_folds, f"Fold should be between 1 and {self.n_folds}, not {self.fold}"
         studies = {}
-        studypaths_all = sorted([f for f in glob(os.path.join(self.datadir, "*")) if os.path.isdir(f)])
-
-        if self.label_generation_cnn:  # If including all studies so we can generate labels
-            studypaths = studypaths_all
-        else:
-            studypaths = [f for f in studypaths_all if get_train_test_exclude_for_study(f) == self.train_or_test]
+        studypaths = sorted([f for f in glob(os.path.join(self.datadir, "*")) if os.path.isdir(f)])
 
         n_insufficient_frames = 0
 
@@ -183,7 +170,7 @@ class E32Dataset(Dataset):
             else:
                 n_insufficient_frames += 1
         print(f"{self.train_or_test.upper()} {len(studies)} studies. "
-              f"({len(studypaths_all)} total; {n_insufficient_frames} excluded due to insufficient frames)")
+              f"({len(studypaths)} total; {n_insufficient_frames} excluded due to insufficient frames)")
         return studies
 
     def get_labels(self):
@@ -196,7 +183,6 @@ class E32Dataset(Dataset):
                 if not os.path.exists(labelpath):
                     del self.studies[studypath]
                     continue
-                    #raise FileNotFoundError(f"Missing label for study {studypath}")
                 self.studies[studypath]['label'] = labelpath
 
             elif format == 'png':
@@ -211,6 +197,11 @@ class E32Dataset(Dataset):
         The video needs to be augmented akin to how Matt would augment it to ensure labels are valid.
         He uses x = x/255 - 0.5
         Matt's network expects 9 channels rather than 3 as he feeds in pre/post"""
+        savepath = os.path.join(studypath, f"label_{self.labelname}.npz")
+        if os.path.exists(savepath):
+            print(f"Skipping as {savepath} exists")
+            return
+
         video = self.load_video(pngpaths)
         video = video / 255 - 0.5
         video = np.concatenate((video, video, video), axis=-1)  # -> RGB
@@ -238,8 +229,6 @@ class E32Dataset(Dataset):
                     if self.cfg['data']['2d']['multi_res']:
                         curve_sd = self.cfg['data']['2d']['curve_sd']
                         dot_sd = self.cfg['data']['2d']['dot_sd']
-                        blur_25 = self.cfg['data']['2d']['blur_25']
-                        blur_50 = self.cfg['data']['2d']['blur_50']
                         scale_factors = (4, 2) if self.cfg['data']['2d']['upsample_labels'] else (2, 1)
 
                         # get gaussian SD for each keypoint depending on if curve or dot - NB matt keypoint names (all 51)
@@ -248,18 +237,14 @@ class E32Dataset(Dataset):
                         keypoint_sds = torch.tensor(keypoint_sds, dtype=torch.float, device=self.label_generation_device)
                         keypoint_sds = keypoint_sds.unsqueeze(1).expand(-1, 2)
 
-                        y_pred_25, y_pred_50 = self.label_generation_cnn(x_batch)
+                        y_pred_25_clean, y_pred_50_clean = self.label_generation_cnn(x_batch)
 
-                        if blur_25:
-                            y_pred_25 = gaussian_blur2d_norm(y_pred=y_pred_25, kernel_size=(25, 25), sigma=keypoint_sds)
-                        if blur_50:
-                            y_pred_50 = gaussian_blur2d_norm(y_pred=y_pred_50, kernel_size=(25, 25), sigma=keypoint_sds)
-
-                        y_pred_25 = torch.nn.functional.interpolate(y_pred_25, scale_factor=scale_factors[0], mode='bilinear', align_corners=True)
-                        if scale_factors[1] != 1:
-                            y_pred_50 = torch.nn.functional.interpolate(y_pred_50, scale_factor=scale_factors[1], mode='bilinear', align_corners=True)
+                        y_pred_25 = torch.nn.functional.interpolate(y_pred_25_clean, scale_factor=scale_factors[0], mode='bilinear', align_corners=True)
+                        y_pred_50 = torch.nn.functional.interpolate(y_pred_50_clean, scale_factor=scale_factors[1], mode='bilinear', align_corners=True)
 
                         y_batch = (y_pred_25 + y_pred_50) / 2.0
+
+                        y_batch = gaussian_blur2d_norm(y_pred=y_batch, kernel_size=(25, 25), sigma=keypoint_sds)
                     else:
                         y_batch = self.label_generation_cnn(x)[-1]  # Several outputs from Matt's model, we want last
 
@@ -275,15 +260,9 @@ class E32Dataset(Dataset):
         # Make channels last before saving so we can more easily augment each image after loading
         output_layer_ids = list(self.label_generation_output_layer_ids_by_name.values())
 
-        label_format = self.cfg['data']['labels']['format']
+        label = y_batches[:, output_layer_ids].transpose((0, 2, 3, 1))  # Want channels last for data aug
+        np.savez_compressed(savepath, label=label)
 
-        if label_format == 'npz':
-            savepath = os.path.join(studypath, f"label_{self.labelname}.npz")
-            label = y_batches[:, output_layer_ids].transpose((0, 2, 3, 1))  # Want channels last for data aug
-            np.savez_compressed(savepath, label=label)
-
-        elif label_format == 'png':
-            raise NotImplementedError()
 
     def load_video(self, pngpaths):
         """Loads a video of len(pngs) frames as a numpy arrays equal to Matt's Shape.
@@ -292,7 +271,10 @@ class E32Dataset(Dataset):
         video_height, video_width = self.label_generation_dim
         video = np.zeros((len(pngpaths), video_height, video_width, 1))
         for i_png, pngpath in enumerate(sorted(pngpaths)):
-            png = skimage.io.imread(pngpath)
+            try:
+                png = skimage.io.imread(pngpath)
+            except ValueError as e:
+                raise ValueError(f"Error loading {pngpath}: {e}")
             png = self.rgb_to_grayscale(png)
             png = self.video_load_transform(image=png)['image']
             video[i_png] = png
