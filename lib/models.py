@@ -9,6 +9,9 @@ def load_model(cfg, local_rank=None):
     mixed_precision = cfg['training'].get('mixed_precision', False)
     data_parallel = cfg['training']['data_parallel']
     n_outputs = len(cfg['data']['labels']['names'])
+    kldiv = cfg['training'][f'train_criterion'] == 'kldivloss'
+    if kldiv:
+        n_outputs += 1
 
     if arch == 'vnet':
         batchnormfunc = lambda n_channels: nn.BatchNorm3d(n_channels)

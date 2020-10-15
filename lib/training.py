@@ -1,4 +1,5 @@
 import os
+import wandb
 from collections import deque
 
 import torch
@@ -29,8 +30,12 @@ class Am:
         self.running_average = sum(self.running) / len(self.running)
 
 
-def cycle(train_or_test, model, dataloader, epoch, criterion, optimizer, cfg, scheduler=None, writer=None, local_rank=None):
+def cycle(train_or_test, model, dataloader, epoch, criterion, optimizer, cfg, scheduler, local_rank=None):
     log_freq = cfg['output']['print_every_iter']
+    sigmoid = cfg['training']['sigmoid']
+    kldiv = cfg['training'][f'{train_or_test}_criterion'] == 'kldivloss'
+
+    assert (not sigmoid) or (not kldiv), "Can't use both sigmoid activation and KLDiv"
     meter_loss = Am()
 
     if local_rank is not None:  # Distributed data parallel
@@ -58,10 +63,20 @@ def cycle(train_or_test, model, dataloader, epoch, criterion, optimizer, cfg, sc
         # Forward pass
         if training:
             y_pred = model(x)
+            if sigmoid:
+                y_pred = torch.sigmoid(y_pred)
+            if kldiv:
+                y_pred = torch.log_softmax(y_pred, dim=1)
+                y_true = torch.softmax(y_true, dim=1)
             loss = criterion(y_pred, y_true)
         else:
             with torch.no_grad():
                 y_pred = model(x)
+                if sigmoid:
+                    y_pred = torch.sigmoid(y_pred)
+                if kldiv:
+                    y_pred = torch.log_softmax(y_pred, dim=1)
+                    y_true = torch.softmax(y_true, dim=1)
                 loss = criterion(y_pred, y_true)
 
         # Backward pass
@@ -75,26 +90,27 @@ def cycle(train_or_test, model, dataloader, epoch, criterion, optimizer, cfg, sc
         meter_loss.update(loss, x.size(0))
 
         # Loss intra-epoch printing
-        if (i_batch+1) % log_freq == 0 and not local_rank:
+        if (i_batch+1) % log_freq == 0 and (not local_rank):
             print(f"{train_or_test.upper(): >5} [{i_batch+1:04d}/{len(dataloader):04d}]"
-                  f"\t\tLOSS: {meter_loss.running_average:.6f}")
+                  f"\t\tLOSS: {meter_loss.running_average:.8f}")
 
-            if train_or_test == 'train' and writer:
-                i_iter = ((epoch - 1) * len(dataloader)) + i_batch+1
-                writer.add_scalar(f"LossIter/{train_or_test}", meter_loss.running_average, i_iter + 1)
+            if train_or_test == 'train':
+                wandb.log({"batch": len(dataloader) * epoch + i_batch,
+                           f"loss_{train_or_test}": meter_loss.running_average})
 
     loss = float(meter_loss.avg.detach().cpu().numpy())
 
     if not training and type(scheduler) == ReduceLROnPlateau:
-        print(f"Stepping!")
+        if not local_rank:
+            print(f"Stepping!")
         scheduler.step(loss)  # Need to step with the validation loss
 
     if not local_rank:
         print(f"{train_or_test.upper(): >5} Complete!"
               f"\t\t\tLOSS: {meter_loss.avg:.6f}")
 
-        if writer:
-            writer.add_scalar(f"LossEpoch/{train_or_test}", loss, epoch)
+        wandb.log({"epoch": epoch,
+                   f"loss_{train_or_test}": meter_loss.avg})
 
     return loss
 
