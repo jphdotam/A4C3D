@@ -244,7 +244,7 @@ class E32Dataset(Dataset):
 
                         y_batch = (y_pred_25 + y_pred_50) / 2.0
 
-                        y_batch = gaussian_blur2d_norm(y_pred=y_batch, kernel_size=(25, 25), sigma=keypoint_sds)
+                        #y_batch = gaussian_blur2d_norm(y_pred=y_batch, kernel_size=(25, 25), sigma=keypoint_sds)
                     else:
                         y_batch = self.label_generation_cnn(x)[-1]  # Several outputs from Matt's model, we want last
 

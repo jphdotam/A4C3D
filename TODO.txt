@@ -1,1 +1,0 @@
-Allow videos < 32 frames, and treat as just 0 pre/post padded

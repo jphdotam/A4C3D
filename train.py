@@ -15,7 +15,7 @@ from lib.training import cycle, save_state
 
 import torch.distributed
 
-CONFIG = "/home/james/a4c3d/experiments/008.yaml"
+CONFIG = "/home/james/a4c3d/experiments/009.yaml"
 
 def main():
     cfg = load_config(CONFIG)
@@ -65,8 +65,10 @@ def main():
     best_loss, best_path, last_save_path = 1e10, None, None
 
     for epoch in range(starting_epoch, n_epochs + 1):
-        if local_rank == 0:
-            print(f"\nEpoch {epoch} of {n_epochs}")
+        print(f"\nEpoch {epoch} of {n_epochs}")
+
+        sampler_train.set_epoch(epoch)
+        sampler_test.set_epoch(epoch)
 
         # Cycle
         train_loss = cycle('train', model, dl_train, epoch, train_criterion, optimizer, cfg, scheduler, local_rank=local_rank)

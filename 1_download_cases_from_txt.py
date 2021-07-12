@@ -9,7 +9,7 @@ from urllib.error import HTTPError
 
 from lib.config import load_config
 
-CONFIG = "./experiments/006.yaml"
+CONFIG = "./experiments/009.yaml"
 MAX_FRAMES = 10000
 HEADERS = {'User-Agent': 'Mozilla/5.0'}
 FORCE_REDOWNLOAD = False

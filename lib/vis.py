@@ -37,11 +37,14 @@ def create_video(x, y_pred, y_true=None, filename_pred=None, filename_true=None,
                    [0, 128, 128],
                    [128, 0, 128],
                    [255, 128, 0],
-                   [255, 0, 128],
-                   [128, 255, 0],
                    [0, 255, 128],
+                   [128, 0, 255],
+                   [128, 255, 0],
                    [0, 128, 255],
-                   [128, 0, 255]]
+                   [255, 0, 128],
+                   [255, 255, 0],
+                   [0, 255, 255],
+                   [255, 0, 255]]
 
     # remove batch dims if present
     if len(x.shape) == 5:

@@ -1,0 +1,105 @@
+# MSEloss, unity-164, removed blurring at label creation
+
+resume:
+  path: false
+  epoch: false
+  reset_optimizer: false
+  reset_lr: false
+
+paths:
+  # local
+  data_train: /home/james/data/a4c3d/data_train
+  data_test: /home/james/data/a4c3d/data_test
+  models: /home/james/data/a4c3d/models
+  logs: /home/james/data/a4c3d/logs
+  vis: /home/james/data/a4c3d/vis
+  predictions: /home/james/data/a4c3d/predictions
+  remote_path: http://89.39.141.131/scantensus-database-png-flat
+  # 2d model
+  2d_model: /home/james/unity-164/weights-400.pt
+  keys_json: /home/james/unity-164/keys.json
+  # downloading data
+  cases_train: /home/james/data/a4c3d/labels-train-164.txt
+  cases_test: /home/james/data/a4c3d/labels-tune-164.txt
+
+data:
+  n_folds: 0  # Set to 0 to ensure all cases used in the dataset; e.g. for specified train and testing folders
+  excluded_folds: []
+  labels:
+    id: a4c_5c_7p_multires
+    format: npz
+    names: ["curve-lv-endo", "curve-rv-endo", "curve-la-endo", "curve-ra-endo", "curve-lv-endo-jump", "lv-apex-endo", "lv-apex-epi", "mv-post-hinge", "mv-ant-hinge", "rv-apex-endo", "tv-ant-hinge", "tv-sep-hinge"]
+  2d:
+    label_generation_dim: [576, 576]
+    pre_post_frames: false
+    device: cuda
+    data_parallel: true
+    frames_per_batch: 64
+    # mutli_res parameters
+    multi_res: true
+    upsample_labels: false  # false means 576 input -> 288; true -> 576
+    dot_sd: 4
+    curve_sd: 2
+  3d:
+    training_frames: 32
+    testing_frames: 32
+    mean: [0.5,]
+    std: [0.25,]
+
+training:
+  # Network
+  arch: unet
+  sigmoid: true
+  ds_conv: false
+  device: cuda
+  data_parallel: distributed  # false, local or distributed
+  mixed_precision: false
+  # Data settings
+  n_epochs: 160
+  batch_size_train: 2
+  batch_size_test: 2
+  n_workers: 8
+  # Optimizer
+  optimizer:
+    type: rangerlars
+    lr: 0.001
+    weight_decay: false
+  scheduler:
+    type: flatcosine
+    # 'flatcosine' settings
+    anneal_start_iters: false  # Half way if not set/false
+    # 'ReduceLROnPlateau'
+    patience: 3
+    factor: 0.1
+    # 'one_cycle'
+    one_cycle_div_factor: 25
+    one_cycle_final_div_factor: 0.001  # Default 1e-4
+  # Loss
+  train_criterion: mseloss
+  test_criterion: mseloss
+
+transforms:
+  train:
+    random_start_frame: true
+    img_size: [288, 288]
+    randomresizedcrop: [0.5, 0.75]  # 2 floats specifying scale range
+    normalize: true
+    blankframes_pre: [0.1, 12]  # Chance, n_frames
+    blankframes_post: [0.1, 12]  # Chance, n_frames
+    grid_dropout: [0.1, false] # whether to apply, apply to mask
+  test:
+    random_start_frame: false
+    img_size: [320, 320]
+    normalize: true
+
+output:
+  # Frequency
+  print_every_iter: 10  # Iterations
+  vis_every_epoch: 1  # In epochs
+  # Model saving
+  save: 'best'  # 'best', 'improvements', 'all'
+  # Videos
+  batches_vis: 1
+  colours: [[255,0,0], [0,255,0], [0,0,255], [128,128,0], [0,128,128], [128,0,128], [255,128,0], [255,0,128], [128,255,0], [0,255,128], [0,128,255], [128,0,255]]
+  # Probability maps
+  write_probs: false
