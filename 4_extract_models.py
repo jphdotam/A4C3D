@@ -2,7 +2,7 @@ import os
 from glob import glob
 import torch
 
-MODEL_DIR = "/home/james/data/a4c3d/models/004"
+MODEL_DIR = "/home/james/data/a4c3d/models/009"
 
 model_paths = glob(os.path.join(MODEL_DIR, "*.pt"))
 

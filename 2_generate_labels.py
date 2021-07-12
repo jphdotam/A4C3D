@@ -2,12 +2,10 @@ import torch
 import torch.nn as nn
 
 from lib.config import load_config
-from lib.transforms import load_transforms
 from lib.dataset import E32Dataset
 from lib.nets.hrnet160 import get_2dnet_cfg, get_seg_model
 
-CONFIG = "./experiments/006.yaml"
-FOLD = 1
+CONFIG = "./experiments/010.yaml"
 
 cfg = load_config(CONFIG)
 
